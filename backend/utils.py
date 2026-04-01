@@ -20,66 +20,84 @@ def extract_text_from_file(file_path: str) -> str:
     except:
         pass
 
-    # If very little text → do OCR (for scanned Indian docs)
+    # OCR fallback if very little text
     if len(text.strip()) < 200:
         print("🔍 Using OCR fallback...")
         reader = easyocr.Reader(['en', 'hi'], gpu=False)
         doc = fitz.open(file_path)
         for page_num in range(len(doc)):
             page = doc[page_num]
-            pix = page.get_pixmap(dpi=300)  # higher DPI = better accuracy
+            pix = page.get_pixmap(dpi=300)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             img_byte_arr = io.BytesIO()
             img.save(img_byte_arr, format='PNG')
             result = reader.readtext(img_byte_arr.getvalue(), detail=0)
-            text += " ".join(result) + "\n"
+            text += " ".join([res[1] for res in result]) + "\n"
         doc.close()
 
-    return text.strip()[:20000]  # limit to avoid token overflow
+    return text.strip()[:20000]
 
 def analyze_contract(text: str, jurisdiction: str = "India") -> dict:
-    if not text or len(text) < 50:
+    if not text or len(text) < 100:
         return {
             "overall_risk": 30,
-            "summary": "Could not extract readable text from the document. Please upload a clearer PDF or photo.",
+            "summary": "Could not extract readable text from the document.",
             "top_risks": [],
             "clauses": []
         }
 
     system_prompt = f"""You are ContractBuddy, an expert Indian legal analyst.
-    Analyze ANY legal/government document (contract, loan receipt, rent agreement, MoU, government letter, etc.).
-    Jurisdiction: {jurisdiction} (use Indian Contract Act, labour laws, DPDP Act, etc.).
+Jurisdiction: {jurisdiction}.
 
-    Return ONLY valid JSON with this exact structure (no extra text, no markdown):
-    {{
-      "overall_risk": number (0-100),
-      "summary": "short plain English summary in 1-2 sentences",
-      "top_risks": ["risk 1", "risk 2", "risk 3"],
-      "clauses": [
-        {{"clause": "short clause title", "risk": number, "explanation": "simple explanation in Hinglish/English"}}
-      ]
-    }}
+Analyze the document and return **ONLY** this exact JSON format. No other text, no markdown, no explanation.
 
-    If text is unclear, still return JSON with low risk and honest summary."""
+{{
+  "overall_risk":  number (0-100),
+  "summary": "short summary in 1-2 sentences",
+  "top_risks": ["risk 1", "risk 2"],
+  "clauses": [
+    {{"clause": "clause title", "risk": number, "explanation": "simple explanation"}}
+  ]
+}}
+
+Document:
+{text[:14000]}"""
 
     try:
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Document text:\n\n{text}"}
+                {"role": "user", "content": "Output the JSON now."}
             ],
-            temperature=0.2,
+            temperature=0.1,      # Very low for consistent JSON
             max_tokens=3000
         )
+
         content = response.choices[0].message.content.strip()
-        return json.loads(content)
+
+        # Clean common LLM wrappers
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+
+        content = content.strip()
+
+        result = json.loads(content)
+        return result
+
+    except json.JSONDecodeError as e:
+        print("JSON Decode Error. Raw output was:", content[:300] if 'content' in locals() else "No content")
     except Exception as e:
-        print("Groq JSON parse error:", e)
-        # Fallback with better message
-        return {
-            "overall_risk": 40,
-            "summary": "AI could not fully parse this document. Try a clearer PDF with selectable text.",
-            "top_risks": ["Poor text quality"],
-            "clauses": []
-        }
+        print("Groq error:", str(e))
+
+    # Final safe fallback
+    return {
+        "overall_risk": 45,
+        "summary": "The AI had trouble structuring the analysis. The document appears to be a legal deed. Please try uploading again or use a PDF version if possible.",
+        "top_risks": ["Parsing difficulty"],
+        "clauses": []
+    }

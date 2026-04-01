@@ -18,7 +18,7 @@ async def get_user_contracts(current_user: User = Depends(get_current_user), db:
             "id": c.id,
             "filename": c.filename,
             "jurisdiction": c.jurisdiction,
-            "risk_report": eval(c.risk_report) if c.risk_report else {},  # convert string back to dict
+            "risk_report": eval(c.risk_report) if c.risk_report else {},
             "created_at": c.created_at
         } for c in contracts
     ]
@@ -81,7 +81,6 @@ async def delete_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     
-    # Delete file from disk
     if os.path.exists(contract.file_path):
         try:
             os.remove(contract.file_path)
@@ -93,8 +92,7 @@ async def delete_contract(
     
     return {"message": "Contract deleted successfully"}
 
-# ChatBot
-
+# ChatBot - Language supported only here
 @router.post("/chat")
 async def chat_with_contract(
     request: dict,
@@ -103,11 +101,11 @@ async def chat_with_contract(
 ):
     contract_id = request.get("contract_id")
     message = request.get("message")
-    
+    language = request.get("language", "hinglish")
+
     if not contract_id or not message:
         raise HTTPException(status_code=400, detail="Missing contract_id or message")
 
-    # Get the contract
     contract = db.query(Contract).filter(
         Contract.id == contract_id,
         Contract.user_id == current_user.id
@@ -116,30 +114,34 @@ async def chat_with_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
 
-    # Safely parse risk_report
     try:
         analysis = eval(contract.risk_report) if isinstance(contract.risk_report, str) else contract.risk_report
     except:
-        analysis = {"summary": "Document analysis not available"}
+        analysis = {"summary": contract.raw_text[:500] if contract.raw_text else ""}
 
-    # Better system prompt
+    lang_instruction = {
+        "english": "Answer in clear, professional English.",
+        "hinglish": "Answer in simple Hinglish (mix of Hindi and English).",
+        "hindi": "Answer fully in Hindi using Devanagari script."
+    }.get(language, "Answer in simple Hinglish.")
+
     system_prompt = f"""You are ContractBuddy, a friendly and expert Indian legal assistant.
-You help normal people (employees, freelancers, renters, small business owners) understand contracts.
+    You help normal people understand contracts.
+    
+    {lang_instruction}
 
-Current Document Analysis:
-- Summary: {analysis.get('summary', 'No summary available')}
-- Overall Risk Score: {analysis.get('overall_risk', 50)}/100
+    Current Document:
+    Summary: {analysis.get('summary', 'No summary available')}
+    Overall Risk: {analysis.get('overall_risk', 50)}/100
 
-Answer in simple, clear English or Hinglish.
-Be practical, honest, and helpful.
-If the user asks about negotiation, give specific suggestions and polite email templates."""
+    Be practical, honest and easy to understand.
+    If the user asks about negotiation, give specific suggestions and polite email templates."""
 
     try:
-        # Import client here to avoid circular import issues
-        from utils import client   # This is the Groq client
+        from utils import client
 
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",   # Changed to more stable model
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message}
@@ -152,4 +154,4 @@ If the user asks about negotiation, give specific suggestions and polite email t
         
     except Exception as e:
         print("Chat error:", str(e))
-        return {"response": "Sorry, I'm having trouble answering right now. Please try rephrasing your question."}
+        return {"response": "माफ़ कीजिए, अभी जवाब देने में समस्या हो रही है। कृपया दोबारा प्रयास करें।"}

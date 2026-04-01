@@ -68,6 +68,11 @@ export default function Dashboard() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Language Selector (only for chat)
+  const [responseLanguage, setResponseLanguage] = useState<
+    "english" | "hinglish" | "hindi"
+  >("hinglish");
+
   // Fetch current user
   useEffect(() => {
     const fetchCurrentUser = async () => {
@@ -115,7 +120,7 @@ export default function Dashboard() {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setCurrentResult(res.data);
-      setMessages([]); // Reset chat when new document is analyzed
+      setMessages([]);
       if (activeTab === "history") fetchHistory();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
@@ -134,11 +139,10 @@ export default function Dashboard() {
     setChatLoading(true);
 
     try {
-      // For now, we use a simple prompt. Later we can make a dedicated endpoint.
       const res = await api.post("/contracts/chat", {
         contract_id: currentResult.id,
         message: userMessage,
-        document_text: currentResult.analysis?.summary || "", // We can improve this later
+        language: responseLanguage,
       });
 
       setMessages((prev) => [
@@ -159,7 +163,6 @@ export default function Dashboard() {
     }
   };
 
-  // Auto scroll chat to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -205,7 +208,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Top Navbar - Now Shows Real User */}
+      {/* Top Navbar */}
       <nav className="bg-white border-b shadow-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -228,7 +231,26 @@ export default function Dashboard() {
               <span>🇮🇳 India Mode</span>
             </div>
 
-            {/* Real Logged-in User */}
+            {/* Language Selector - Only for Chat */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-600">
+                Chat Language:
+              </label>
+              <select
+                value={responseLanguage}
+                onChange={(e) =>
+                  setResponseLanguage(
+                    e.target.value as "english" | "hinglish" | "hindi",
+                  )
+                }
+                className="border border-gray-300 rounded-2xl px-4 py-2 text-sm focus:outline-none focus:border-blue-600"
+              >
+                <option value="english">English</option>
+                <option value="hinglish">Hinglish</option>
+                <option value="hindi">हिंदी</option>
+              </select>
+            </div>
+
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center font-semibold text-lg">
                 {currentUser?.full_name
@@ -283,11 +305,9 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Rest of your Dashboard code remains the same */}
         {/* NEW ANALYSIS TAB */}
         {activeTab === "new" && (
           <div className="space-y-10">
-            {/* Upload Section - (same as before) */}
             <div className="bg-white rounded-3xl shadow-xl p-10">
               <h2 className="text-3xl font-bold mb-8">Upload New Document</h2>
               <form onSubmit={handleUpload} className="space-y-8">
@@ -343,7 +363,6 @@ export default function Dashboard() {
               </form>
             </div>
 
-            {/* Analysis Result Section - (same as your previous code) */}
             {currentResult && (
               <div className="grid grid-cols-12 gap-8">
                 <div className="col-span-12 lg:col-span-4">
@@ -419,7 +438,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* HISTORY TAB - Same as before */}
         {activeTab === "history" && (
           <div className="bg-white rounded-3xl shadow-xl p-8">
             <h2 className="text-3xl font-bold mb-8">Your Previous Documents</h2>
@@ -472,7 +490,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* AI Chat Sidebar - Fixed on Right Side */}
+      {/* AI Chat Sidebar */}
       {currentResult && (
         <div className="w-96 bg-white rounded-3xl shadow-2xl p-6 flex flex-col fixed right-8 top-24 bottom-8 overflow-hidden border border-gray-100">
           <div className="flex items-center gap-3 mb-6 border-b pb-4">
@@ -494,10 +512,11 @@ export default function Dashboard() {
                 <br />
                 <br />
                 You can ask me:
-                <br />• Can they fire me without notice?
-                <br />• Is this non-compete clause fair in India?
+                <br />
+                • Can they fire me without notice?
+                <br />
+                • Is this non-compete fair?
                 <br />• Help me negotiate better terms
-                <br />• What should I change in this agreement?
               </div>
             ) : (
               messages.map((msg, i) => (
@@ -506,11 +525,7 @@ export default function Dashboard() {
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[85%] px-4 py-3 rounded-3xl ${
-                      msg.role === "user"
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-100 text-gray-800"
-                    }`}
+                    className={`max-w-[85%] px-4 py-3 rounded-3xl ${msg.role === "user" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"}`}
                   >
                     {msg.content}
                   </div>
