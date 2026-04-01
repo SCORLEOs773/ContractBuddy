@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import api from "../lib/axios";
 import {
   Upload,
@@ -8,6 +8,8 @@ import {
   Eye,
   Calendar,
   Flag,
+  Send,
+  Bot,
 } from "lucide-react";
 
 interface Clause {
@@ -36,6 +38,11 @@ interface CurrentUser {
   email: string;
 }
 
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<"new" | "history">("new");
 
@@ -55,7 +62,13 @@ export default function Dashboard() {
   const [history, setHistory] = useState<Contract[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Fetch current logged-in user
+  // AI Chat
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Fetch current user
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
@@ -69,11 +82,8 @@ export default function Dashboard() {
     fetchCurrentUser();
   }, []);
 
-  // Fetch history when tab changes
   useEffect(() => {
-    if (activeTab === "history") {
-      fetchHistory();
-    }
+    if (activeTab === "history") fetchHistory();
   }, [activeTab]);
 
   const fetchHistory = async () => {
@@ -105,6 +115,7 @@ export default function Dashboard() {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setCurrentResult(res.data);
+      setMessages([]); // Reset chat when new document is analyzed
       if (activeTab === "history") fetchHistory();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
@@ -114,9 +125,47 @@ export default function Dashboard() {
     }
   };
 
+  const sendChatMessage = async () => {
+    if (!chatInput.trim() || !currentResult || chatLoading) return;
+
+    const userMessage = chatInput.trim();
+    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+    setChatInput("");
+    setChatLoading(true);
+
+    try {
+      // For now, we use a simple prompt. Later we can make a dedicated endpoint.
+      const res = await api.post("/contracts/chat", {
+        contract_id: currentResult.id,
+        message: userMessage,
+        document_text: currentResult.analysis?.summary || "", // We can improve this later
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.data.response },
+      ]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Sorry, I couldn't process that. Please try again.",
+        },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  // Auto scroll chat to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
   const deleteContract = async (id: number) => {
     if (!confirm("Are you sure you want to delete this document?")) return;
-
     try {
       await api.delete(`/contracts/${id}`);
       fetchHistory();
@@ -142,6 +191,7 @@ export default function Dashboard() {
       filename: contract.filename,
       analysis: analysisData,
     });
+    setMessages([]);
     setActiveTab("new");
   };
 
@@ -421,6 +471,79 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* AI Chat Sidebar - Fixed on Right Side */}
+      {currentResult && (
+        <div className="w-96 bg-white rounded-3xl shadow-2xl p-6 flex flex-col fixed right-8 top-24 bottom-8 overflow-hidden border border-gray-100">
+          <div className="flex items-center gap-3 mb-6 border-b pb-4">
+            <div className="bg-blue-600 text-white p-2 rounded-2xl">
+              <Bot size={24} />
+            </div>
+            <div>
+              <h3 className="font-semibold text-xl">ContractBuddy Assistant</h3>
+              <p className="text-xs text-gray-500">
+                Ask anything about this document
+              </p>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2 custom-scrollbar">
+            {messages.length === 0 ? (
+              <div className="text-center text-gray-500 mt-12">
+                Hi! I'm your personal contract assistant.
+                <br />
+                <br />
+                You can ask me:
+                <br />• Can they fire me without notice?
+                <br />• Is this non-compete clause fair in India?
+                <br />• Help me negotiate better terms
+                <br />• What should I change in this agreement?
+              </div>
+            ) : (
+              messages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`max-w-[85%] px-4 py-3 rounded-3xl ${
+                      msg.role === "user"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-800"
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                </div>
+              ))
+            )}
+            {chatLoading && (
+              <div className="text-gray-500 text-sm">
+                ContractBuddy is thinking...
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && sendChatMessage()}
+              placeholder="Ask me anything about this contract..."
+              className="flex-1 border border-gray-300 rounded-3xl px-5 py-3 focus:outline-none focus:border-blue-600 text-sm"
+            />
+            <button
+              onClick={sendChatMessage}
+              disabled={!chatInput.trim() || chatLoading}
+              className="bg-blue-600 text-white p-3 rounded-3xl hover:bg-blue-700 disabled:opacity-50 transition"
+            >
+              <Send size={22} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

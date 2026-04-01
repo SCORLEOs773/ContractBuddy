@@ -92,3 +92,64 @@ async def delete_contract(
     db.commit()
     
     return {"message": "Contract deleted successfully"}
+
+# ChatBot
+
+@router.post("/chat")
+async def chat_with_contract(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    contract_id = request.get("contract_id")
+    message = request.get("message")
+    
+    if not contract_id or not message:
+        raise HTTPException(status_code=400, detail="Missing contract_id or message")
+
+    # Get the contract
+    contract = db.query(Contract).filter(
+        Contract.id == contract_id,
+        Contract.user_id == current_user.id
+    ).first()
+    
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    # Safely parse risk_report
+    try:
+        analysis = eval(contract.risk_report) if isinstance(contract.risk_report, str) else contract.risk_report
+    except:
+        analysis = {"summary": "Document analysis not available"}
+
+    # Better system prompt
+    system_prompt = f"""You are ContractBuddy, a friendly and expert Indian legal assistant.
+You help normal people (employees, freelancers, renters, small business owners) understand contracts.
+
+Current Document Analysis:
+- Summary: {analysis.get('summary', 'No summary available')}
+- Overall Risk Score: {analysis.get('overall_risk', 50)}/100
+
+Answer in simple, clear English or Hinglish.
+Be practical, honest, and helpful.
+If the user asks about negotiation, give specific suggestions and polite email templates."""
+
+    try:
+        # Import client here to avoid circular import issues
+        from utils import client   # This is the Groq client
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",   # Changed to more stable model
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message}
+            ],
+            temperature=0.7,
+            max_tokens=900
+        )
+        
+        return {"response": response.choices[0].message.content.strip()}
+        
+    except Exception as e:
+        print("Chat error:", str(e))
+        return {"response": "Sorry, I'm having trouble answering right now. Please try rephrasing your question."}
