@@ -10,6 +10,7 @@ import {
   Flag,
   Send,
   Bot,
+  Download,
 } from "lucide-react";
 
 interface Clause {
@@ -44,7 +45,9 @@ interface ChatMessage {
 }
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<"new" | "history">("new");
+  const [activeTab, setActiveTab] = useState<
+    "new" | "history" | "generate" | "compare"
+  >("new");
 
   // User Info
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -78,6 +81,20 @@ export default function Dashboard() {
   const [responseLanguage, setResponseLanguage] = useState<
     "english" | "hinglish" | "hindi"
   >("hinglish");
+
+  // Generate & Compare Tab
+  const [contractDescription, setContractDescription] = useState("");
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [generateLoading, setGenerateLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [generatedContract, setGeneratedContract] = useState<string>("");
+
+  // Compare Tab
+  const [file1, setFile1] = useState<File | null>(null);
+  const [file2, setFile2] = useState<File | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [compareResult, setCompareResult] = useState<any>(null);
 
   // Fetch current user
   useEffect(() => {
@@ -188,6 +205,71 @@ export default function Dashboard() {
       );
     } finally {
       setNegotiationLoading(false);
+    }
+  };
+
+  const generateContract = async () => {
+    if (!contractDescription.trim()) return;
+
+    setGenerateLoading(true);
+    try {
+      const res = await api.post("/contracts/generate", {
+        description: contractDescription,
+        jurisdiction: "India",
+      });
+      setGeneratedContract(res.data.contract);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      alert("Failed to generate contract. Please try again.");
+    } finally {
+      setGenerateLoading(false);
+    }
+  };
+
+  const downloadAsDocx = () => {
+    const blob = new Blob([generatedContract], {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Generated_Contract.docx";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadAsPdf = () => {
+    alert(
+      "PDF download will be added in the next update (requires extra library). For now, you can copy the text and paste into Word and save as PDF.",
+    );
+    navigator.clipboard.writeText(generatedContract);
+  };
+
+  // Compare Two Documents
+  const runComparison = async () => {
+    if (!file1 || !file2) {
+      alert("Please upload both documents for comparison.");
+      return;
+    }
+
+    setCompareLoading(true);
+    setCompareResult(null);
+
+    const formData = new FormData();
+    formData.append("file1", file1);
+    formData.append("file2", file2);
+    formData.append("jurisdiction", "India");
+
+    try {
+      const res = await api.post("/contracts/compare", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setCompareResult(res.data);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      alert("Comparison failed. Please try again.");
+    } finally {
+      setCompareLoading(false);
     }
   };
 
@@ -309,27 +391,31 @@ export default function Dashboard() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-8 py-10">
-        {/* Tabs */}
-        <div className="flex border-b mb-10">
+        {/* 4 Tabs */}
+        <div className="flex border-b mb-10 overflow-x-auto">
           <button
             onClick={() => setActiveTab("new")}
-            className={`px-8 py-4 font-semibold text-lg border-b-4 transition-all ${
-              activeTab === "new"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`px-8 py-4 font-semibold text-lg border-b-4 transition-all whitespace-nowrap ${activeTab === "new" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
           >
             New Analysis
           </button>
           <button
             onClick={() => setActiveTab("history")}
-            className={`px-8 py-4 font-semibold text-lg border-b-4 transition-all ${
-              activeTab === "history"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
+            className={`px-8 py-4 font-semibold text-lg border-b-4 transition-all whitespace-nowrap ${activeTab === "history" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
           >
             My Documents ({history.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("generate")}
+            className={`px-8 py-4 font-semibold text-lg border-b-4 transition-all whitespace-nowrap ${activeTab === "generate" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
+          >
+            Generate Contract
+          </button>
+          <button
+            onClick={() => setActiveTab("compare")}
+            className={`px-8 py-4 font-semibold text-lg border-b-4 transition-all whitespace-nowrap ${activeTab === "compare" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
+          >
+            Compare Documents
           </button>
         </div>
 
@@ -565,6 +651,127 @@ export default function Dashboard() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Generate Contract Tab */}
+        {activeTab === "generate" && (
+          <div className="space-y-10">
+            <div className="bg-white rounded-3xl shadow-xl p-10">
+              <h2 className="text-3xl font-bold mb-2">
+                Smart Contract Generator
+              </h2>
+              <p className="text-gray-600 mb-8">
+                Describe what you need and get a fair, India-specific contract
+                instantly
+              </p>
+
+              <textarea
+                value={contractDescription}
+                onChange={(e) => setContractDescription(e.target.value)}
+                placeholder="Example: Create a 3-month freelance graphic design agreement for Punjab. Total amount ₹80,000, 50% advance, 15-day notice period, work done on time."
+                className="w-full h-48 p-6 border-2 border-gray-200 rounded-3xl focus:border-blue-600 text-lg resize-y"
+              />
+
+              <button
+                onClick={generateContract}
+                disabled={!contractDescription.trim() || generateLoading}
+                className="mt-8 w-full py-6 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold text-xl rounded-3xl hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 transition"
+              >
+                {generateLoading
+                  ? "Generating Fair Contract..."
+                  : "Generate My Contract"}
+              </button>
+            </div>
+
+            {generatedContract && (
+              <div className="bg-white rounded-3xl shadow-xl p-10">
+                <h3 className="text-2xl font-bold mb-6">Generated Contract</h3>
+                <div className="bg-gray-50 p-8 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap border max-h-[500px] overflow-auto">
+                  {generatedContract}
+                </div>
+
+                <div className="mt-8 flex gap-4">
+                  <button
+                    onClick={downloadAsDocx}
+                    className="flex-1 py-5 bg-blue-600 text-white font-semibold rounded-3xl hover:bg-blue-700 flex items-center justify-center gap-2"
+                  >
+                    <Download size={20} /> Download as .docx
+                  </button>
+                  <button
+                    onClick={downloadAsPdf}
+                    className="flex-1 py-5 bg-red-600 text-white font-semibold rounded-3xl hover:bg-red-700 flex items-center justify-center gap-2"
+                  >
+                    <Download size={20} /> Download as PDF
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Compare Documents Tab */}
+        {activeTab === "compare" && (
+          <div className="bg-white rounded-3xl shadow-xl p-10">
+            <h2 className="text-3xl font-bold mb-8">Compare Two Contracts</h2>
+            <p className="text-gray-600 mb-10">
+              Upload two documents and get AI-powered comparison with
+              suggestions
+            </p>
+
+            <div className="grid grid-cols-2 gap-8">
+              <div>
+                <label className="block text-sm font-medium mb-3">
+                  Document 1 (e.g. Your Version)
+                </label>
+                <input
+                  type="file"
+                  onChange={(e) => setFile1(e.target.files?.[0] || null)}
+                  className="w-full"
+                  accept=".pdf,.docx"
+                />
+                {file1 && (
+                  <p className="mt-2 text-green-600 text-sm">
+                    Selected: {file1.name}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-3">
+                  Document 2 (e.g. Other Party's Version)
+                </label>
+                <input
+                  type="file"
+                  onChange={(e) => setFile2(e.target.files?.[0] || null)}
+                  className="w-full"
+                  accept=".pdf,.docx"
+                />
+                {file2 && (
+                  <p className="mt-2 text-green-600 text-sm">
+                    Selected: {file2.name}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={runComparison}
+              disabled={!file1 || !file2 || compareLoading}
+              className="mt-10 w-full py-6 bg-blue-600 hover:bg-blue-700 text-white text-xl font-semibold rounded-3xl disabled:opacity-50 transition"
+            >
+              {compareLoading
+                ? "Analyzing Differences..."
+                : "Compare Documents"}
+            </button>
+
+            {compareResult && (
+              <div className="mt-12 bg-gray-50 p-8 rounded-2xl">
+                <h3 className="font-bold text-xl mb-6">Comparison Result</h3>
+                <div className="whitespace-pre-wrap text-gray-700 leading-relaxed">
+                  {compareResult.analysis}
+                </div>
               </div>
             )}
           </div>

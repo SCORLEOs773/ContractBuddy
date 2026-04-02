@@ -11,29 +11,61 @@ load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 def extract_text_from_file(file_path: str) -> str:
+    ext = file_path.lower().split(".")[-1]
     text = ""
-    try:
-        doc = fitz.open(file_path)
-        for page in doc:
-            text += page.get_text("text")
-        doc.close()
-    except:
-        pass
 
-    # OCR fallback if very little text
-    if len(text.strip()) < 200:
-        print("🔍 Using OCR fallback...")
-        reader = easyocr.Reader(['en', 'hi'], gpu=False)
-        doc = fitz.open(file_path)
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            pix = page.get_pixmap(dpi=300)
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='PNG')
-            result = reader.readtext(img_byte_arr.getvalue(), detail=0)
-            text += " ".join([res[1] for res in result]) + "\n"
-        doc.close()
+    # =========================
+    # PDF HANDLER
+    # =========================
+    if ext == "pdf":
+        try:
+            doc = fitz.open(file_path)
+            for page in doc:
+                text += page.get_text("text")
+            doc.close()
+        except Exception as e:
+            print("PDF extraction error:", e)
+
+        # OCR fallback if scanned PDF
+        if len(text.strip()) < 200:
+            print("🔍 Using OCR fallback...")
+            reader = easyocr.Reader(['en', 'hi'], gpu=False)
+            doc = fitz.open(file_path)
+            for page in doc:
+                pix = page.get_pixmap(dpi=300)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                img_byte_arr = io.BytesIO()
+                img.save(img_byte_arr, format='PNG')
+                result = reader.readtext(img_byte_arr.getvalue(), detail=0)
+                text += " ".join(result) + "\n"
+            doc.close()
+
+    # =========================
+    # DOCX HANDLER  ⭐ NEW
+    # =========================
+    elif ext == "docx":
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+        except Exception as e:
+            print("DOCX extraction error:", e)
+            raise Exception("Could not read DOCX file")
+
+    # =========================
+    # TXT HANDLER  ⭐ NEW
+    # =========================
+    elif ext == "txt":
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except Exception as e:
+            print("TXT extraction error:", e)
+            raise Exception("Could not read TXT file")
+
+    else:
+        raise Exception(f"Unsupported file type: {ext}")
 
     return text.strip()[:20000]
 
