@@ -68,6 +68,12 @@ export default function Dashboard() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Negotiation Assistant
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [negotiationLoading, setNegotiationLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [negotiationResult, setNegotiationResult] = useState<string>("");
+
   // Language Selector (only for chat)
   const [responseLanguage, setResponseLanguage] = useState<
     "english" | "hinglish" | "hindi"
@@ -160,6 +166,28 @@ export default function Dashboard() {
       ]);
     } finally {
       setChatLoading(false);
+    }
+  };
+
+  const generateNegotiationHelp = async () => {
+    if (!currentResult) return;
+
+    setNegotiationLoading(true);
+    setNegotiationResult("");
+
+    try {
+      const res = await api.post("/contracts/negotiate", {
+        contract_id: currentResult.id,
+      });
+
+      setNegotiationResult(res.data.suggestion);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      setNegotiationResult(
+        "Sorry, I couldn't generate negotiation suggestions right now. Please try again.",
+      );
+    } finally {
+      setNegotiationLoading(false);
     }
   };
 
@@ -363,8 +391,10 @@ export default function Dashboard() {
               </form>
             </div>
 
+            {/* Analysis Result Section + Negotiation Assistant */}
             {currentResult && (
               <div className="grid grid-cols-12 gap-8">
+                {/* Risk Overview */}
                 <div className="col-span-12 lg:col-span-4">
                   <div className="bg-white rounded-3xl shadow-xl p-8 h-full">
                     <div className="flex justify-between items-center mb-6">
@@ -396,7 +426,8 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="col-span-12 lg:col-span-8">
+                {/* Clauses */}
+                <div className="col-span-12 lg:col-span-5">
                   <div className="bg-white rounded-3xl shadow-xl p-8">
                     <h3 className="text-2xl font-bold mb-6">
                       Key Clauses & Risks
@@ -431,6 +462,56 @@ export default function Dashboard() {
                         </p>
                       )}
                     </div>
+                  </div>
+                </div>
+
+                {/* Negotiation Assistant Panel */}
+                <div className="col-span-12 lg:col-span-3">
+                  <div className="bg-white rounded-3xl shadow-xl p-8 sticky top-8">
+                    <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                      <span>🤝</span> Negotiation Helper
+                    </h3>
+                    <p className="text-sm text-gray-600 mb-6">
+                      Get custom counter-proposals and email templates
+                    </p>
+
+                    <button
+                      onClick={() => generateNegotiationHelp()}
+                      disabled={negotiationLoading}
+                      className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-3xl hover:from-green-700 hover:to-emerald-700 transition disabled:opacity-50"
+                    >
+                      {negotiationLoading
+                        ? "Generating..."
+                        : "Help Me Negotiate Better Terms"}
+                    </button>
+
+                    {negotiationResult && (
+                      <div className="mt-6 text-sm bg-gray-50 p-6 rounded-2xl border border-gray-200">
+                        <div className="font-medium mb-4 text-gray-800">
+                          Suggested Negotiation Strategy:
+                        </div>
+                        <div
+                          className="prose prose-sm max-w-none text-gray-700 leading-relaxed"
+                          dangerouslySetInnerHTML={{
+                            __html: negotiationResult
+                              .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") // Bold
+                              .replace(
+                                /^### (.*$)/gm,
+                                '<h3 class="font-bold mt-4 mb-2">$1</h3>',
+                              )
+                              .replace(
+                                /^## (.*$)/gm,
+                                '<h2 class="font-bold mt-5 mb-2">$1</h2>',
+                              )
+                              .replace(
+                                /^\* (.*$)/gm,
+                                '<li class="ml-4">• $1</li>',
+                              ) // Bullet points
+                              .replace(/\n/g, "<br>"),
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -525,10 +606,17 @@ export default function Dashboard() {
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[85%] px-4 py-3 rounded-3xl ${msg.role === "user" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"}`}
-                  >
-                    {msg.content}
-                  </div>
+                    className={`max-w-[85%] px-4 py-3 rounded-3xl ${
+                      msg.role === "user"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-800"
+                    }`}
+                    dangerouslySetInnerHTML={{
+                      __html: msg.content
+                        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+                        .replace(/\n/g, "<br>"),
+                    }}
+                  />
                 </div>
               ))
             )}

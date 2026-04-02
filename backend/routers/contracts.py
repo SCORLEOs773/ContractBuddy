@@ -92,6 +92,65 @@ async def delete_contract(
     
     return {"message": "Contract deleted successfully"}
 
+# Negotiation Assistant - Major Feature
+@router.post("/negotiate")
+async def negotiate_contract(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    contract_id = request.get("contract_id")
+    
+    if not contract_id:
+        raise HTTPException(status_code=400, detail="Missing contract_id")
+
+    contract = db.query(Contract).filter(
+        Contract.id == contract_id,
+        Contract.user_id == current_user.id
+    ).first()
+    
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    try:
+        analysis = eval(contract.risk_report) if isinstance(contract.risk_report, str) else contract.risk_report
+    except:
+        analysis = {"summary": "Document analysis not available"}
+
+    system_prompt = f"""You are ContractBuddy, an expert Indian negotiation assistant.
+
+Document Analysis:
+Summary: {analysis.get('summary', 'No summary')}
+Overall Risk: {analysis.get('overall_risk', 50)}/100
+
+The user wants help negotiating better terms.
+Provide:
+1. Key risky clauses and why they are bad for the user.
+2. Suggested counter-proposals (specific changes).
+3. Polite email/message template the user can send to the other party.
+4. Fallback positions (what to accept if they push back).
+
+Keep response practical, professional, and easy to understand. Use simple English or Hinglish."""
+
+    try:
+        from utils import client
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "Generate negotiation strategy and email template now."}
+            ],
+            temperature=0.7,
+            max_tokens=1200
+        )
+        
+        return {"suggestion": response.choices[0].message.content.strip()}
+        
+    except Exception as e:
+        print("Negotiation error:", str(e))
+        return {"suggestion": "Sorry, I couldn't generate negotiation suggestions right now. Please try again later."}
+
 # ChatBot - Language supported only here
 @router.post("/chat")
 async def chat_with_contract(
