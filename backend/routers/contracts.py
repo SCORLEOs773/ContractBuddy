@@ -139,7 +139,7 @@ async def generate_contract(
         print("Contract generation error:", str(e))
         raise HTTPException(status_code=500, detail="Failed to generate contract. Please try again.")
 
-# Compare Two Documents - Ultra Simple Debug Version
+# Compare Two Documents - Final Working Version
 @router.post("/compare")
 async def compare_two_documents(
     file1: UploadFile = File(...),
@@ -147,59 +147,57 @@ async def compare_two_documents(
     jurisdiction: str = "India",
     current_user: User = Depends(get_current_user)
 ):
-    print("=== COMPARE ENDPOINT CALLED ===")
-    print(f"File1 received: {file1.filename} ({file1.content_type})")
-    print(f"File2 received: {file2.filename} ({file2.content_type})")
+    print("=== COMPARE ENDPOINT STARTED ===")
+    print(f"File1: {file1.filename} | Content-Type: {file1.content_type}")
+    print(f"File2: {file2.filename} | Content-Type: {file2.content_type}")
 
-    ext1 = file1.filename.split(".")[-1]
-    ext2 = file2.filename.split(".")[-1]
-
-    path1 = f"uploads/debug_c1_{current_user.id}.{ext1}"
-    path2 = f"uploads/debug_c2_{current_user.id}.{ext2}"
+    path1 = None
+    path2 = None
 
     try:
         os.makedirs("uploads", exist_ok=True)
 
-        print(f"Saving file1 to: {path1}")
-        with open(path1, "wb") as f:
-            await file1.seek(0)
-            content = await file1.read()
-            f.write(content)
+        # Use extremely simple temporary names
+        path1 = f"uploads/temp_compare1_{current_user.id}.tmp"
+        path2 = f"uploads/temp_compare2_{current_user.id}.tmp"
 
-        print(f"Saving file2 to: {path2}")
-        with open(path2, "wb") as f:
-            await file2.seek(0)
-            content = await file2.read()
-            f.write(content)
+        # Save files exactly like the main upload does
+        with open(path1, "wb") as buffer:
+            shutil.copyfileobj(file1.file, buffer)
 
-        print("Files saved successfully")
+        with open(path2, "wb") as buffer:
+            shutil.copyfileobj(file2.file, buffer)
 
+        print("Both files saved successfully")
+
+        # Use the same extraction function as main upload
         text1 = extract_text_from_file(path1)
         text2 = extract_text_from_file(path2)
 
-        print(f"Extracted Text1 length: {len(text1)}")
-        print(f"Extracted Text2 length: {len(text2)}")
+        print(f"Extracted Text1 length: {len(text1)} characters")
+        print(f"Extracted Text2 length: {len(text2)} characters")
 
-        if len(text1.strip()) < 50 or len(text2.strip()) < 50:
-            raise HTTPException(status_code=400, detail="Very little text extracted from one or both files.")
-        
+        if len(text1.strip()) < 100 or len(text2.strip()) < 100:
+            raise HTTPException(status_code=400, detail="Could not extract enough text from one or both files. Please try clearer documents.")
+
+        # AI Comparison
         system_prompt = f"""You are an expert Indian contract lawyer.
 
-            Document 1:
-            {text1[:7000]}
+Document 1:
+{text1[:7000]}
 
-            Document 2:
-            {text2[:7000]}
+Document 2:
+{text2[:7000]}
 
-            Compare them and give clear analysis:
-            - Key differences
-            - Which is better for the user
-            - Risky clauses
-            - Suggested changes
-            - Recommendation
+Give a clear, useful comparison:
+- Major differences
+- Which document is better for the user and why
+- Risky or unfair clauses
+- Suggested changes
+- Overall recommendation
 
-            Use bullet points."""
-            
+Use simple language and bullet points."""
+
         from utils import client
 
         response = client.chat.completions.create(
@@ -209,27 +207,16 @@ async def compare_two_documents(
                 {"role": "user", "content": "Compare the two documents."}
             ],
             temperature=0.5,
-            max_tokens=2500
+            max_tokens=2800
         )
 
         return {"analysis": response.choices[0].message.content.strip()}
 
-        # For now, return a simple message so we know it reached here
-#         return {
-#             "analysis": f"""Comparison Result:
-
-# Document 1 ({file1.filename}): {len(text1)} characters extracted
-# Document 2 ({file2.filename}): {len(text2)} characters extracted
-
-# Full comparison coming soon. For now, both files were successfully processed."""
-#         }
-
     except Exception as e:
         print("Comparison error:", str(e))
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to compare documents: {str(e)}")
     finally:
+        # Cleanup
         for p in [path1, path2]:
             if p and os.path.exists(p):
                 try:
